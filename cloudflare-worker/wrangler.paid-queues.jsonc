@@ -1,0 +1,63 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mr-web-to-apk-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ENV": "production",
+    "BOT_USERNAME": "MRWebToApkBot",
+    "WORKER_PUBLIC_URL": "https://mr-web-to-apk-bot.your-subdomain.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mr_web_to_apk_db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "../database/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "mr-web-to-apk-private"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "BUILD_QUEUE",
+        "queue": "mr-web-to-apk-builds"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "mr-web-to-apk-builds",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "mr-web-to-apk-builds-dlq"
+      }
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiterDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiterDO"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
+}

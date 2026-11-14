@@ -1,0 +1,6 @@
+{
+  "name": "MR WebToApk",
+  "description": "MR WEB TO APK BOT — Cloud APK Builder Admin & Website ZIP Security Companion for Cloudflare Workers + Docker Android Build Server.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

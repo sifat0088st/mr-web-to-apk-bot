@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local `wrangler dev` testing (never commit real secrets)
+TELEGRAM_BOT_TOKEN=123456789:REPLACE_WITH_REAL_BOT_TOKEN
+TELEGRAM_WEBHOOK_SECRET=replace-with-random-64-char-hex-webhook-secret
+BUILD_SERVER_URL=http://127.0.0.1:8443
+BUILD_SERVER_SECRET=replace-with-random-64-char-hex-build-secret
+ADMIN_BOOTSTRAP_SECRET=replace-with-random-bootstrap-secret
+ADMIN_JWT_SECRET=replace-with-random-64-char-hex-jwt-secret
+DOWNLOAD_SIGNING_SECRET=replace-with-random-64-char-hex-download-secret
+TOTP_ENCRYPTION_KEY=replace-with-32-byte-base64-key

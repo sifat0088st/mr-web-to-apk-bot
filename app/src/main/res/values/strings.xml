@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">MR WebToApk</string>
+    <string name="brand_full_title">MR WEB TO APK BOT</string>
+    <string name="brand_subtitle">Cloudflare Workers + Docker APK Builder</string>
+    <string name="nav_overview">Overview</string>
+    <string name="nav_builds">Builds</string>
+    <string name="nav_scanner">ZIP Scan</string>
+    <string name="nav_admin">Admin</string>
+    <string name="open_telegram_bot">Open @MRWebToApkBot</string>
+    <string name="pick_zip_button">Select Website ZIP</string>
+    <string name="connect_worker_title">Connect Cloudflare Worker</string>
+</resources>

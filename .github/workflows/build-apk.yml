@@ -1,0 +1,241 @@
+name: Free Cloud APK Builder (Ubuntu 24.04)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_job_id:
+        description: 'Numeric build job ID'
+        required: true
+      job_code:
+        description: 'Unique job code'
+        required: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34 & Build Tools
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Build Agent dependencies
+        working-directory: build-server
+        run: npm install
+
+      - name: Execute Isolated APK Build, Sign & Deliver
+        env:
+          WORKER_PUBLIC_URL: ${{ vars.WORKER_PUBLIC_URL }}
+          BUILD_SERVER_SECRET: ${{ secrets.BUILD_SERVER_SECRET }}
+          APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_ALIAS: ${{ secrets.APK_KEYSTORE_ALIAS }}
+          APK_KEYSTORE_PASS: ${{ secrets.APK_KEYSTORE_PASS }}
+          BUILD_JOB_ID: ${{ inputs.build_job_id }}
+          JOB_CODE: ${{ inputs.job_code }}
+        run: |
+          node --input-type=module - <<'EOF'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import fsp from 'node:fs/promises';
+          import path from 'node:path';
+          import { execFile } from 'node:child_process';
+          import { promisify } from 'node:util';
+          import yauzl from './build-server/node_modules/yauzl/index.js';
+
+          const execFileAsync = promisify(execFile);
+          const workerUrl = process.env.WORKER_PUBLIC_URL.replace(/\/$/, '');
+          const secret = process.env.BUILD_SERVER_SECRET;
+          const jobId = Number(process.env.BUILD_JOB_ID);
+          const jobCode = process.env.JOB_CODE;
+
+          function signHmac(msg) {
+            const ts = String(Math.floor(Date.now() / 1000));
+            const sig = crypto.createHmac('sha256', secret).update(`${ts}.${msg}`).digest('hex');
+            return { ts, sig };
+          }
+
+          async function progress(stage, pct, logMessage) {
+            const body = JSON.stringify({ buildJobId: jobId, jobCode, stage, progressPercent: pct, logMessage, buildServerId: 'github-actions-free' });
+            const { ts, sig } = signHmac(body);
+            await fetch(`${workerUrl}/internal/build/progress`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-MR-Timestamp': ts, 'X-MR-Signature': sig },
+              body,
+            }).catch(() => {});
+          }
+
+          async function fail(stage, errorMessage) {
+            const body = JSON.stringify({ buildJobId: jobId, jobCode, stage, errorMessage });
+            const { ts, sig } = signHmac(body);
+            await fetch(`${workerUrl}/internal/build/fail`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-MR-Timestamp': ts, 'X-MR-Signature': sig },
+              body,
+            }).catch(() => {});
+          }
+
+          try {
+            const { ts, sig } = signHmac(`job:${jobId}`);
+            const specResp = await fetch(`${workerUrl}/internal/job/${jobId}`, {
+              headers: { 'X-MR-Timestamp': ts, 'X-MR-Signature': sig },
+            });
+            if (!specResp.ok) throw new Error(`Job fetch failed: ${specResp.status}`);
+            const job = await specResp.json();
+
+            const workDir = `/tmp/mrbuild-${jobCode}`;
+            const projDir = path.join(workDir, 'project');
+            await fsp.mkdir(workDir, { recursive: true });
+
+            await progress('Extracting files', 25, 'Downloading validated ZIP from R2');
+            const zipResp = await fetch(job.zipDownloadUrl);
+            if (!zipResp.ok) throw new Error(`ZIP fetch failed: ${zipResp.status}`);
+            const zipBuf = Buffer.from(await zipResp.arrayBuffer());
+            if (crypto.createHash('sha256').update(zipBuf).digest('hex') !== job.zipSha256) {
+              throw new Error('ZIP SHA-256 verification failed');
+            }
+            const zipPath = path.join(workDir, 'site.zip');
+            await fsp.writeFile(zipPath, zipBuf);
+
+            await progress('Android project creation', 45, 'Creating Android WebView project');
+            await fsp.cp('android-webview-template', projDir, { recursive: true });
+            const wwwDir = path.join(projDir, 'app/src/main/assets/www');
+            await fsp.mkdir(wwwDir, { recursive: true });
+
+            await new Promise((resolve, reject) => {
+              yauzl.open(zipPath, { lazyEntries: true }, (err, zf) => {
+                if (err || !zf) return reject(err || new Error('Open ZIP failed'));
+                zf.readEntry();
+                zf.on('entry', (entry) => {
+                  if (entry.fileName.startsWith('/') || entry.fileName.includes('..') || entry.fileName.includes('\\')) {
+                    zf.close(); return reject(new Error(`Unsafe path: ${entry.fileName}`));
+                  }
+                  const target = path.resolve(wwwDir, entry.fileName);
+                  if (/\/$/.test(entry.fileName)) {
+                    fsp.mkdir(target, { recursive: true }).then(() => zf.readEntry());
+                    return;
+                  }
+                  zf.openReadStream(entry, async (sErr, rs) => {
+                    if (sErr || !rs) { zf.close(); return reject(sErr); }
+                    await fsp.mkdir(path.dirname(target), { recursive: true });
+                    const ws = fs.createWriteStream(target);
+                    rs.pipe(ws);
+                    ws.on('finish', () => zf.readEntry());
+                  });
+                });
+                zf.on('end', resolve);
+                zf.on('error', reject);
+              });
+            });
+
+            await progress('WebView configuration', 55, 'Configuring logo, splash, colors & permissions');
+            if (job.logoDownloadUrl) {
+              const r = await fetch(job.logoDownloadUrl);
+              if (r.ok) {
+                const dir = path.join(projDir, 'app/src/main/res/mipmap-xxxhdpi');
+                await fsp.mkdir(dir, { recursive: true });
+                await fsp.writeFile(path.join(dir, 'ic_launcher.png'), Buffer.from(await r.arrayBuffer()));
+              }
+            }
+            let hasSplash = false;
+            if (job.splashDownloadUrl) {
+              const r = await fetch(job.splashDownloadUrl);
+              if (r.ok) {
+                const dir = path.join(projDir, 'app/src/main/res/drawable-nodpi');
+                await fsp.mkdir(dir, { recursive: true });
+                await fsp.writeFile(path.join(dir, 'splash_screen.png'), Buffer.from(await r.arrayBuffer()));
+                hasSplash = true;
+              }
+            }
+
+            const clean = (v) => String(v).replace(/[\r\n\\"]/g, ' ').trim();
+            await fsp.writeFile(path.join(projDir, 'app/app_build_config.properties'), [
+              `applicationId=${clean(job.appConfig.packageName)}`,
+              `versionCode=${job.appConfig.versionCode}`,
+              `versionName=${clean(job.appConfig.versionName)}`,
+              `appName=${clean(job.appConfig.appName)}`,
+              `startPage=${clean(job.appConfig.startPage)}`,
+              `statusBarColor=${clean(job.appConfig.statusBarColor)}`,
+              `navBarColor=${clean(job.appConfig.navBarColor)}`,
+              `appTheme=${clean(job.appConfig.appTheme)}`,
+              `orientation=${clean(job.appConfig.orientation)}`,
+              `externalLinksMode=${clean(job.appConfig.externalLinksMode)}`,
+              `externalLinksDomains=${clean(job.appConfig.externalLinksDomains.join(','))}`,
+              `hasSplash=${hasSplash}`,
+            ].join('\n'));
+
+            const manifestPath = path.join(projDir, 'app/src/main/AndroidManifest.xml');
+            let manifest = await fsp.readFile(manifestPath, 'utf8');
+            const perms = job.appConfig.permissions
+              .filter((p) => p !== 'INTERNET' && p !== 'ACCESS_NETWORK_STATE')
+              .map((p) => `    <uses-permission android:name="android.permission.${p}" />`)
+              .join('\n');
+            await fsp.writeFile(manifestPath, manifest.replace('<!-- ADDITIONAL_PERMISSIONS_PLACEHOLDER -->', perms));
+
+            await progress('Gradle build', 75, 'Compiling Android APK');
+            await execFileAsync('gradle', ['assembleRelease', '--no-daemon'], { cwd: projDir });
+
+            await progress('APK signing', 85, 'Signing APK with release keystore');
+            const unsignedApk = path.join(projDir, 'app/build/outputs/apk/release/app-release-unsigned.apk');
+            const alignedApk = path.join(workDir, 'aligned.apk');
+            const signedApk = path.join(workDir, 'signed.apk');
+            const btDir = `${process.env.ANDROID_HOME || '/usr/local/lib/android/sdk'}/build-tools/34.0.0`;
+            await execFileAsync(`${btDir}/zipalign`, ['-p', '-f', '4', unsignedApk, alignedApk]);
+
+            const ksPath = path.join(workDir, 'release.p12');
+            let ksPass = process.env.APK_KEYSTORE_PASS || '';
+            let ksAlias = process.env.APK_KEYSTORE_ALIAS || 'mrwebtoapk';
+            if (process.env.APK_KEYSTORE_BASE64) {
+              await fsp.writeFile(ksPath, Buffer.from(process.env.APK_KEYSTORE_BASE64, 'base64'));
+            } else {
+              throw new Error('APK_KEYSTORE_BASE64 secret is missing in GitHub Repository Secrets');
+            }
+
+            await execFileAsync(`${btDir}/apksigner`, [
+              'sign', '--ks', ksPath, '--ks-key-alias', ksAlias,
+              '--ks-pass', `pass:${ksPass}`, '--key-pass', `pass:${ksPass}`,
+              '--out', signedApk, alignedApk,
+            ]);
+
+            await progress('APK verification', 95, 'Verifying APK signature');
+            const { stdout: vOut } = await execFileAsync(`${btDir}/apksigner`, ['verify', '--verbose', '--print-certs', signedApk]);
+            const certSha = (vOut.match(/Signer #1 certificate SHA-256 digest:\s*([a-fA-F0-9]+)/) || [])[1] || '';
+
+            const apkBuf = await fsp.readFile(signedApk);
+            const apkSha = crypto.createHash('sha256').update(apkBuf).digest('hex');
+            const doneSig = signHmac(`${jobCode}:${apkSha}`);
+            const up = await fetch(`${workerUrl}/internal/build/complete`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/vnd.android.package-archive',
+                'X-MR-Timestamp': doneSig.ts,
+                'X-MR-Signature': doneSig.sig,
+                'X-MR-Job-Numeric-Id': String(jobId),
+                'X-MR-Job-Id': jobCode,
+                'X-MR-Cert-Sha256': certSha,
+                'X-MR-Signing-Mode': job.signingMode || 'platform_managed',
+                'X-MR-Signature-Verified': 'true',
+              },
+              body: apkBuf,
+            });
+            if (!up.ok) throw new Error(`Upload failed: ${up.status}`);
+          } catch (err) {
+            await fail('Build error', err.message || String(err));
+            process.exit(1);
+          }
+          EOF

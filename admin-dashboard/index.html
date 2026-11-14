@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MR WEB TO APK BOT — Admin Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Auth Screen -->
+  <section id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <div class="brand-badge">MR</div>
+      <h1>MR WEB TO APK BOT</h1>
+      <p class="muted" data-i18n="authSubtitle">Cloudflare Workers + Linux Docker APK Builder Admin</p>
+
+      <div class="form-group">
+        <label for="worker-url" data-i18n="workerUrlLabel">Cloudflare Worker URL</label>
+        <input id="worker-url" type="url" placeholder="https://mr-web-to-apk-bot.your-subdomain.workers.dev" />
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-username" data-i18n="username">Username</label>
+          <input id="login-username" type="text" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="login-password" data-i18n="password">Password</label>
+          <input id="login-password" type="password" required autocomplete="current-password" />
+        </div>
+        <div class="form-group">
+          <label for="login-totp" data-i18n="totpOptional">2FA TOTP Code (if enabled)</label>
+          <input id="login-totp" type="text" inputmode="numeric" maxlength="6" placeholder="123456" />
+        </div>
+        <button type="submit" class="btn btn-primary full-width" data-i18n="signIn">Sign In to Dashboard</button>
+      </form>
+
+      <div class="auth-footer">
+        <button id="toggle-bootstrap-btn" class="btn btn-ghost" type="button" data-i18n="firstTimeBootstrap">First-time Super Admin Setup</button>
+        <button id="auth-lang-btn" class="btn btn-ghost" type="button">বাংলা / EN</button>
+      </div>
+
+      <form id="bootstrap-form" class="hidden bootstrap-box">
+        <h3 data-i18n="bootstrapTitle">Bootstrap Super Admin</h3>
+        <div class="form-group">
+          <label>ADMIN_BOOTSTRAP_SECRET</label>
+          <input id="boot-secret" type="password" required />
+        </div>
+        <div class="form-group">
+          <label>Username</label>
+          <input id="boot-username" type="text" required />
+        </div>
+        <div class="form-group">
+          <label>Password (min 10 chars)</label>
+          <input id="boot-password" type="password" minlength="10" required />
+        </div>
+        <label class="checkbox-row">
+          <input id="boot-totp" type="checkbox" checked />
+          <span>Enable TOTP Two-Factor Auth</span>
+        </label>
+        <button type="submit" class="btn btn-dark full-width">Create Super Admin</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Main Dashboard -->
+  <div id="app-shell" class="app-shell hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="mobile-menu-btn" class="icon-btn mobile-only" aria-label="Toggle Menu">☰</button>
+        <div class="brand-inline">
+          <span class="brand-dot"></span>
+          <strong>MR WEB TO APK BOT</strong>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="server-pill" class="pill pill-gray">Builder: Checking...</span>
+        <button id="lang-toggle-btn" class="btn btn-outline btn-sm" type="button">বাংলা / EN</button>
+        <button id="logout-btn" class="btn btn-dark btn-sm" type="button" data-i18n="logout">Logout</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside id="sidebar" class="sidebar">
+        <nav class="nav-list">
+          <button class="nav-item active" data-tab="overview">📊 <span data-i18n="tabOverview">Overview</span></button>
+          <button class="nav-item" data-tab="users">👥 <span data-i18n="tabUsers">Users & Wallets</span></button>
+          <button class="nav-item" data-tab="builds">⚙️ <span data-i18n="tabBuilds">Builds & Queue</span></button>
+          <button class="nav-item" data-tab="channels">📢 <span data-i18n="tabChannels">Join & Earn</span></button>
+          <button class="nav-item" data-tab="settings">🛠️ <span data-i18n="tabSettings">Settings & Limits</span></button>
+          <button class="nav-item" data-tab="admins">🔐 <span data-i18n="tabAdmins">Admins & Roles</span></button>
+          <button class="nav-item" data-tab="audit">📜 <span data-i18n="tabAudit">Audit & Security</span></button>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <!-- Overview Tab -->
+        <section id="tab-overview" class="tab-panel active">
+          <div class="section-header">
+            <h2 data-i18n="overviewTitle">Platform Overview</h2>
+            <button id="refresh-stats-btn" class="btn btn-primary btn-sm" data-i18n="refresh">Refresh</button>
+          </div>
+          <div id="stats-grid" class="stats-grid"></div>
+          <div class="card">
+            <h3 data-i18n="buildServerHealth">External Build Server Health</h3>
+            <div id="build-server-card" class="server-metrics"></div>
+          </div>
+        </section>
+
+        <!-- Users Tab -->
+        <section id="tab-users" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="usersTitle">Users & Reward Accounting</h2>
+            <div class="search-row">
+              <input id="user-search-input" type="search" placeholder="Search Telegram ID or username..." />
+              <button id="user-search-btn" class="btn btn-primary btn-sm">Search</button>
+            </div>
+          </div>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID / Telegram</th>
+                  <th>Name / Username</th>
+                  <th>Points</th>
+                  <th>Free Credits</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Builds Tab -->
+        <section id="tab-builds" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="buildsTitle">Build Queue & History</h2>
+            <div class="search-row">
+              <select id="build-status-filter">
+                <option value="">All Statuses</option>
+                <option value="queued">Queued</option>
+                <option value="processing">Processing</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <button id="refresh-builds-btn" class="btn btn-primary btn-sm">Filter</button>
+            </div>
+          </div>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job Code</th>
+                  <th>App / Package</th>
+                  <th>User</th>
+                  <th>Stage</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="builds-tbody"></tbody>
+            </table>
+          </div>
+          <div id="build-logs-card" class="card hidden">
+            <div class="section-header">
+              <h3 id="build-logs-title">Build Logs</h3>
+              <button id="close-logs-btn" class="btn btn-ghost btn-sm">Close</button>
+            </div>
+            <pre id="build-logs-pre" class="log-pre"></pre>
+          </div>
+        </section>
+
+        <!-- Join & Earn Channels Tab -->
+        <section id="tab-channels" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="channelsTitle">Join & Earn Channels / Groups</h2>
+          </div>
+          <form id="add-channel-form" class="card grid-form">
+            <input id="ch-name" placeholder="Channel / Group Name" required />
+            <input id="ch-username" placeholder="@username (optional)" />
+            <input id="ch-chat-id" placeholder="Chat ID (e.g. -1001234567890 or @channel)" required />
+            <input id="ch-url" placeholder="Invite URL (https://t.me/...)" required />
+            <input id="ch-reward" type="number" value="500" min="1" placeholder="Reward Points" required />
+            <button type="submit" class="btn btn-primary">Add Channel / Group</button>
+          </form>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Chat ID</th>
+                  <th>Reward</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="channels-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Settings Tab -->
+        <section id="tab-settings" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="settingsTitle">System, Referral & Upload Limits</h2>
+            <button id="setup-webhook-btn" class="btn btn-dark btn-sm">Register Telegram Webhook</button>
+          </div>
+          <form id="settings-form" class="card settings-grid"></form>
+          <div class="action-bar">
+            <button id="save-settings-btn" class="btn btn-primary" type="button">Save All Settings</button>
+          </div>
+        </section>
+
+        <!-- Admins Tab -->
+        <section id="tab-admins" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="adminsTitle">Admin Accounts & RBAC</h2>
+          </div>
+          <form id="create-admin-form" class="card grid-form">
+            <input id="new-admin-user" placeholder="Username" required />
+            <input id="new-admin-pass" type="password" minlength="10" placeholder="Password (min 10 chars)" required />
+            <select id="new-admin-role">
+              <option value="1">super_admin</option>
+              <option value="2" selected>moderator</option>
+              <option value="3">viewer</option>
+            </select>
+            <label class="checkbox-row">
+              <input id="new-admin-totp" type="checkbox" checked />
+              <span>Enable 2FA</span>
+            </label>
+            <button type="submit" class="btn btn-primary">Create Admin</button>
+          </form>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>2FA</th>
+                  <th>Last Login</th>
+                </tr>
+              </thead>
+              <tbody id="admins-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Audit Logs Tab -->
+        <section id="tab-audit" class="tab-panel">
+          <div class="section-header">
+            <h2 data-i18n="auditTitle">Immutable Audit & Security Logs</h2>
+            <button id="refresh-audit-btn" class="btn btn-primary btn-sm">Refresh</button>
+          </div>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Actor</th>
+                  <th>Action</th>
+                  <th>Target</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal for Balance / Credit / Ban -->
+  <div id="action-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <h3 id="modal-title">Action</h3>
+      <p id="modal-subtitle" class="muted"></p>
+      <form id="modal-form">
+        <div id="modal-delta-group" class="form-group">
+          <label id="modal-delta-label">Amount (positive or negative integer)</label>
+          <input id="modal-delta" type="number" step="1" />
+        </div>
+        <div class="form-group">
+          <label>Mandatory Audit Reason</label>
+          <input id="modal-reason" type="text" required placeholder="Explain why this adjustment is made..." />
+        </div>
+        <div class="modal-actions">
+          <button id="modal-cancel" type="button" class="btn btn-ghost">Cancel</button>
+          <button type="submit" class="btn btn-primary">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
