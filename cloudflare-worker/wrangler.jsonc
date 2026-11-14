@@ -9,15 +9,15 @@
   },
   "vars": {
     "APP_ENV": "production",
-    "BOT_USERNAME": "MRWebToApkBot",
+    "BOT_USERNAME": "mrwebtoapk_bot",
     "WORKER_PUBLIC_URL": "https://mr-web-to-apk-bot.your-subdomain.workers.dev",
-    "GITHUB_REPO": ""
+    "GITHUB_REPO": "sifat0088st/mr-web-to-apk-bot"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "mr_web_to_apk_db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_id": "00000001-00000000-00005123-66af99c566693089423b8c8178716b27",
       "migrations_dir": "../database/migrations"
     }
   ],
